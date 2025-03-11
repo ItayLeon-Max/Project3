@@ -1,0 +1,358 @@
+# routers/products.ts
+import { Router } from "express";
+
+const router = Router()
+
+
+export default router
+# routers/freedoms.ts
+import express from "express";
+import upload from "../../config/multerConfig"; 
+import { addFreedom, getFreedoms } from "../controllers/freedoms/controller";
+
+const router = express.Router();
+
+router.get("/", getFreedoms);
+router.post("/", upload.single("imgFreedom"), addFreedom); 
+
+export default router;
+# app.ts
+import express, { json } from "express"
+import config from 'config'
+import sequelize from "./db/sequelize"
+// import profileRouter from "./routers/profile"
+// import followsRouter from "./routers/follows"
+// import commentsRouter from "./routers/comments"
+// import feedRouter from "./routers/feed"
+// import authRouter from "./routers/auth"
+import errorLogger from "./middlewares/error/error-logger"
+import errorResponder from "./middlewares/error/error-responder"
+import notFound from "./middlewares/not-found"
+import cors from 'cors'
+import router from "./routers/freedoms"
+
+const port = config.get<string>('app.port')
+const name = config.get<string>('app.name')
+const force = config.get<boolean>('sequelize.sync.force')
+
+const app = express();
+
+(async () => {
+    await sequelize.sync({ force })
+
+    // middlewares
+    app.use(cors()) // allow any client to use this server
+
+    app.use(json()) // a middleware to extract the post/put/patch data and save it to the request object in case the content type of the request is application/json
+
+    app.use(express.urlencoded({ extended: true }));
+    app.use(express.json());
+
+
+    app.use('/freedoms', router)
+    // app.use('/categories', categoriesRouter)
+    // app.use('/products', productsRouter)
+
+    // special notFound middleware
+    app.use(notFound)
+
+    // error middleware
+    app.use(errorLogger)
+    app.use(errorResponder)
+
+    app.listen(port, () => console.log(`${name} started on port ${port}...`))
+})()
+
+# middlewares/validation.ts
+import { NextFunction, Request, Response } from "express";
+import { ObjectSchema } from "joi";
+import AppError from "../errors/app-error";
+import { StatusCodes } from "http-status-codes";
+
+export default function validation(validator: ObjectSchema) {
+    return async function (req: Request, res: Response, next: NextFunction) {
+        try {
+            req.body = await validator.validateAsync(req.body)
+            next()
+        } catch (e) {
+            next(new AppError(StatusCodes.UNPROCESSABLE_ENTITY, e.message))
+        }
+    }
+}
+
+# middlewares/not-found.ts
+import { NextFunction, Request, Response } from "express";
+import AppError from "../errors/app-error";
+import { StatusCodes } from "http-status-codes";
+
+export default function notFound(req: Request, res: Response, next: NextFunction) {
+    next(new AppError(StatusCodes.NOT_FOUND, 'not found'))
+}
+# middlewares/params-validation.ts
+import { NextFunction, Request, Response } from "express";
+import { ObjectSchema } from "joi";
+import AppError from "../errors/app-error";
+import { StatusCodes } from "http-status-codes";
+
+export default function paramsValidation(validator: ObjectSchema) {
+    return async function (req: Request, res: Response, next: NextFunction) {
+        try {
+            req.params = await validator.validateAsync(req.params)
+            next()
+        } catch (e) {
+            next(new AppError(StatusCodes.UNPROCESSABLE_ENTITY, e.message))
+        }
+    }
+}
+
+# middlewares/error/error-responder.ts
+import { NextFunction, Request, Response } from "express";
+import AppError from "../../errors/app-error";
+
+export default function errorResponder(err: Error, req: Request, res: Response, next: NextFunction) {
+    if(err instanceof AppError) {
+        res.status(err.status).send(err.message)
+    } else {
+        res.status(500).send(err.message)
+    }
+}
+# middlewares/error/error-logger.ts
+import { NextFunction, Request, Response } from "express";
+
+export default function errorLogger(err: Error, req: Request, res: Response, next: NextFunction) {
+    console.error(err.message)
+    next(err)
+}
+# models/freedom.ts
+import { 
+    AllowNull, 
+    Column, 
+    DataType, 
+    Default, 
+    Model, 
+    PrimaryKey, 
+    Table 
+} from "sequelize-typescript";
+
+@Table({
+    underscored: true,
+})
+export default class Freedom extends Model {
+
+    @PrimaryKey
+    @Default(DataType.UUIDV4)
+    @Column(DataType.UUID)
+    id: string;
+
+    @AllowNull(false)
+    @Column
+    vacationDestination: string;
+
+    @AllowNull(false)
+    @Column
+    description: string;
+
+    @AllowNull(false)
+    @Column(DataType.DATE)
+    start: Date;
+
+    @AllowNull(false)
+    @Column(DataType.DATE)
+    end: Date;
+
+    @AllowNull(false)
+    @Column(DataType.FLOAT)
+    price: number;
+
+    @AllowNull(false)
+    @Column(DataType.STRING)
+    imgFreedom: string;
+}
+# models/follower.ts
+import { 
+    Column,
+    ForeignKey, 
+    Model, 
+    Table, 
+    DataType,
+    PrimaryKey 
+} from "sequelize-typescript";
+import User from "./user";
+import Freedom from "./freedom";
+
+@Table({
+    underscored: true,
+})
+export default class Follower extends Model {
+
+    @PrimaryKey
+    @ForeignKey(() => User)
+    @Column(DataType.UUID)
+    userId: string;
+
+    @PrimaryKey
+    @ForeignKey(() => Freedom)
+    @Column(DataType.UUID)
+    freedomId: string;
+}
+# models/user.ts
+import { 
+    AllowNull, 
+    Column, 
+    DataType, 
+    Default, 
+    HasMany,
+    Model, 
+    PrimaryKey, 
+    Table 
+} from "sequelize-typescript";
+import Follower from "./follower";
+
+@Table({
+    underscored: true,
+})
+export default class User extends Model {
+
+    @PrimaryKey
+    @Default(DataType.UUIDV4)
+    @Column(DataType.UUID)
+    id: string;
+
+    @AllowNull(false)
+    @Column
+    name: string;
+
+    @AllowNull(false)
+    @Column
+    lastName: string;
+
+    @AllowNull(false)
+    @Column
+    email: string;
+
+    @AllowNull(false)
+    @Column
+    password: string;
+
+    @AllowNull(false)
+    @Column
+    role: string;
+
+    @HasMany(() => Follower)
+    followers: Follower[];
+}
+# db/sequelize.ts
+import { Sequelize } from "sequelize-typescript";
+import config from 'config'
+import User from "../models/user";
+import Freedom from "../models/freedom";
+import Follower from "../models/follower";
+
+const logging = config.get<boolean>('sequelize.logging') ? console.log : false
+
+const sequelize = new Sequelize({
+    // [ add ALL model classes you created to the array ]:
+    models: [ User, Freedom, Follower ],
+    dialect: 'mysql',
+    ...config.get('db'),
+    logging,
+})
+
+export default sequelize
+# errors/app-error.ts
+export default class AppError extends Error {
+    constructor(public status: number, message: string) {
+        super(message)
+    }
+}
+# controllers/products/controller.ts
+// import { NextFunction, Request, Response } from "express";
+// import Category from "../../models/user";
+// import Product from "../../models/freedom";
+
+// export async function getPerCategory(req: Request<{categoryId: string}>, res: Response, next: NextFunction) {
+//     try {
+//         const { categoryId } = req.params
+//         const category = await Category.findByPk(categoryId, {
+//             include: [ Product ]
+//         })
+//         res.json(category.products)
+//     } catch (e) {
+//         next(e)
+//     }
+// }
+
+// export async function add(req: Request<{}, {}, {
+//     name: string,
+//     productionTime: Date,
+//     expirationTime: Date,
+//     categoryId: string,
+//     price: number
+// }>, res: Response, next: NextFunction) {
+//     try {
+//         const newProduct = await Product.create(req.body)
+//         res.json(newProduct)
+//     } catch (e) {
+//         next(e)
+//     }
+// }
+
+// export async function remove(req: Request<{id: string}>, res: Response, next: NextFunction) {
+//     try {
+//         const { id } = req.params
+//         await Product.destroy({where: {id}})
+//         res.json({success: true})
+//     } catch (e) {
+//         next(e)
+//     }
+// }
+# controllers/products/validator.ts
+// import Joi from "joi";
+
+// export const newProductValidator = Joi.object({
+//     name: Joi.string().max(255).required(),
+//     price: Joi.number().min(0).required(),
+//     productionTime: Joi.date().required(),
+//     expirationTime: Joi.date().required(),
+//     categoryId: Joi.string().uuid().required()
+// })
+
+// export const getPerCategoryValidator = Joi.object({
+//     categoryId: Joi.string().uuid().required()
+// })
+
+// export const deleteProductValidator = Joi.object({
+//     id: Joi.string().uuid().required()
+// })
+
+# controllers/freedoms/controller.ts
+import { NextFunction, Request, Response } from "express";
+import Freedom from "../../models/freedom";
+
+interface MulterRequest extends Request {
+    file?: Express.Multer.File;
+}
+
+export async function getFreedoms(req: Request, res: Response, next: NextFunction) {
+    try {
+        const freedoms = await Freedom.findAll();
+        res.status(200).json(freedoms);
+        console.log(`numbers of freedoms: ${freedoms.length}`);
+    } catch (error) {
+        next(error);
+    }
+}
+
+export async function addFreedom(req: Request, res: Response, next: NextFunction) {
+    try {
+        console.log("Uploaded File:", req.file); 
+        
+        const { vacationDestination, description, start, end, price } = req.body;
+        const imgFreedom = req.file?.filename || "default.jpg"; 
+        
+        const newFreedom = await Freedom.create({ vacationDestination, description, start, end, price, imgFreedom });
+        res.status(201).json(newFreedom);
+    } catch (error) {
+        next(error);
+    }
+}
